@@ -1,0 +1,67 @@
+import os
+import cv2
+from transformers import Owlv2Processor, Owlv2ForObjectDetection
+
+videos = ["_".join(i.split("_")[:-1]) for i in os.listdir("sim/in")]
+# print(videos)
+frames = sorted([i for i in os.listdir("sim/in") if i.startswith("vid17_")])
+assert len(frames) > 0, "No frames found, video should be one of " + str(videos)
+import pylab
+import numpy as np
+from IPython.display import display, clear_output, HTML
+from torchvision.ops import box_convert
+import torch
+from tqdm import tqdm
+from PIL import Image
+from transformers import AutoConfig
+import torchvision
+import bitsandbytes
+
+# use sam to do tracking
+# use reverse? cannot include all list
+# pre encode text
+texts = ["semi-transparent, faint, white steam cloud plume on black background"]
+
+device = "cuda:0" if torch.cuda.is_available() else "cpu"
+torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+
+model = AutoModelForCausalLM.from_pretrained("microsoft/Florence-2-large", torch_dtype=torch_dtype, trust_remote_code=True).to(device)
+processor = AutoProcessor.from_pretrained("microsoft/Florence-2-large", trust_remote_code=True)
+
+img0 = cv2.imread("sim/in/" + frames[0])
+history_state = []
+bgsub = cv2.createBackgroundSubtractorMOG2(history=30)
+video_writer = cv2.VideoWriter("out.mp4", cv2.VideoWriter_fourcc(*'mp4v'), 15, (img0.shape[1], img0.shape[0]))
+for frame in tqdm(frames):
+    img = cv2.imread("sim/in/" + frame)
+    bgsub.apply(img)
+    bg = bgsub.getBackgroundImage().astype(float)
+    diff = cv2.absdiff(img.astype(float), bg) * 10 #too large cannot see detial
+    diff = np.clip(diff, 0, 255).astype(np.uint8)
+    
+    diff = Image.fromarray(diff)
+    inputs = processor(text=texts, images=diff, return_tensors="pt", padding="longest").to("cuda")
+    with torch.no_grad():
+        outputs = model(**inputs)
+    target_sizes = torch.Tensor([diff.size[::-1]])
+    
+    frame = np.array(diff)
+    results = processor.post_process_object_detection(outputs=outputs, target_sizes=target_sizes, threshold=0.15)
+    
+    i = 0
+    text = texts[i]
+    boxes, logits, phrases = results[i]["boxes"], results[i]["scores"], results[i]["labels"]
+    
+    positive = boxes[phrases == 0]
+    positive_logits = logits[phrases == 0]
+    indices = torchvision.ops.nms(positive, positive_logits, 0.3)
+    
+    for box, logit in zip(positive[indices], positive_logits[indices]):
+        x1, y1, x2, y2 = box.int().tolist()
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (255,0,255), 2)
+        cv2.putText(frame, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255,0,255), 1)
+
+    video_writer.write(frame)
+    
+video_writer.release()
+os.system("ffmpeg -i out.mp4 -c:v libx264 out_x264.mp4 -y > /dev/null 2>&1")
