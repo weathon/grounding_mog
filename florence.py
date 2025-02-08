@@ -1,6 +1,6 @@
 import os
 import cv2
-from transformers import Owlv2Processor, Owlv2ForObjectDetection
+from transformers import AutoProcessor, AutoModelForCausalLM
 
 videos = ["_".join(i.split("_")[:-1]) for i in os.listdir("sim/in")]
 # print(videos)
@@ -17,21 +17,44 @@ from transformers import AutoConfig
 import torchvision
 import bitsandbytes
 
+
 # use sam to do tracking
 # use reverse? cannot include all list
 # pre encode text
-texts = ["semi-transparent, faint, white steam cloud plume on black background"]
+texts = ["semi-transparent steam cloud plume on black background"]
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
-model = AutoModelForCausalLM.from_pretrained("microsoft/Florence-2-large", torch_dtype=torch_dtype, trust_remote_code=True).to(device)
 processor = AutoProcessor.from_pretrained("microsoft/Florence-2-large", trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained("microsoft/Florence-2-large", torch_dtype=torch_dtype, trust_remote_code=True).to(device)
 
 img0 = cv2.imread("sim/in/" + frames[0])
 history_state = []
 bgsub = cv2.createBackgroundSubtractorMOG2(history=30)
 video_writer = cv2.VideoWriter("out.mp4", cv2.VideoWriter_fourcc(*'mp4v'), 15, (img0.shape[1], img0.shape[0]))
+
+
+
+def image2box(image):
+    prompt = ["<OPEN_VOCABULARY_DETECTION>semi-transparent white steam cloud plume. **Not** human, cars, birds, bikes, and other objects. "]
+
+    inputs = processor(text=prompt, images=[image] * len(prompt), return_tensors="pt", padding=True).to(device, torch_dtype)
+    generated_ids = model.generate(
+        input_ids=inputs["input_ids"],
+        pixel_values=inputs["pixel_values"],
+        max_new_tokens=1024,
+        num_beams=3,
+    )
+    generated_text = processor.batch_decode(generated_ids, skip_special_tokens=False)
+
+    res = processor.post_process_generation(generated_text[0], task="<OPEN_VOCABULARY_DETECTION>", image_size=(image.width, image.height))
+    res = res["<OPEN_VOCABULARY_DETECTION>"]
+    # print(res)
+    return res["bboxes"]
+
+
+
 for frame in tqdm(frames):
     img = cv2.imread("sim/in/" + frame)
     bgsub.apply(img)
@@ -40,28 +63,15 @@ for frame in tqdm(frames):
     diff = np.clip(diff, 0, 255).astype(np.uint8)
     
     diff = Image.fromarray(diff)
-    inputs = processor(text=texts, images=diff, return_tensors="pt", padding="longest").to("cuda")
-    with torch.no_grad():
-        outputs = model(**inputs)
-    target_sizes = torch.Tensor([diff.size[::-1]])
     
-    frame = np.array(diff)
-    results = processor.post_process_object_detection(outputs=outputs, target_sizes=target_sizes, threshold=0.15)
-    
-    i = 0
-    text = texts[i]
-    boxes, logits, phrases = results[i]["boxes"], results[i]["scores"], results[i]["labels"]
-    
-    positive = boxes[phrases == 0]
-    positive_logits = logits[phrases == 0]
-    indices = torchvision.ops.nms(positive, positive_logits, 0.3)
-    
-    for box, logit in zip(positive[indices], positive_logits[indices]):
-        x1, y1, x2, y2 = box.int().tolist()
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (255,0,255), 2)
-        cv2.putText(frame, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255,0,255), 1)
+    boxes = image2box(diff)
+    diff = np.array(diff)
+    for box in boxes:
+        x1, y1, x2, y2 = box
+        x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+        cv2.rectangle(diff, (x1, y1), (x2, y2), (255,0,255), 2)
 
-    video_writer.write(frame)
+    video_writer.write(diff)
     
 video_writer.release()
 os.system("ffmpeg -i out.mp4 -c:v libx264 out_x264.mp4 -y > /dev/null 2>&1")

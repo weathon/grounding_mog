@@ -23,7 +23,7 @@ predictor = SAM2ImagePredictor.from_pretrained("facebook/sam2-hiera-large")
 # use sam to do tracking
 # use reverse? cannot include all list
 # pre encode text
-texts = ["semi-transparent steam plume on black background", 
+texts = ["semi-transparent white steam plume on black background",  # addiung the white can decrease false positive and increase true positive
          "white human shadow", 
          "white birds shadow",
          "white vehicle shadow",
@@ -50,7 +50,7 @@ prev_masks = None
 def sigmoid(x):
     x = np.array(x)
     return 1 / (1 + np.exp(-x))
-for frame in tqdm(frames[250:]):
+for frame in tqdm(frames[:]):
     img = cv2.imread("sim/in/" + frame)
     bgsub.apply(img)
     bg = bgsub.getBackgroundImage().astype(float)
@@ -65,7 +65,7 @@ for frame in tqdm(frames[250:]):
     target_sizes = torch.Tensor([diff.size[::-1]])
     
     frame = np.array(diff)
-    results = processor.post_process_object_detection(outputs=outputs, target_sizes=target_sizes, threshold=0.1)
+    results = processor.post_process_object_detection(outputs=outputs, target_sizes=target_sizes, threshold=0.15)
     
     i = 0
     text = texts[i]
