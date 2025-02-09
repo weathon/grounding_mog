@@ -2,6 +2,8 @@ import os
 import cv2
 from transformers import Owlv2Processor, Owlv2ForObjectDetection
 
+
+
 videos = ["_".join(i.split("_")[:-1]) for i in os.listdir("sim/in")]
 # print(videos)
 frames = sorted([i for i in os.listdir("sim/in") if i.startswith("vid8")])
@@ -23,12 +25,12 @@ predictor = SAM2ImagePredictor.from_pretrained("facebook/sam2-hiera-large")
 # use sam to do tracking
 # use reverse? cannot include all list
 # pre encode text
-texts = ["semi-transparent white steam plume on black background",  # addiung the white can decrease false positive and increase true positive
+texts = ["semi-transparent faint white steam plume on black background",  # addiung the white can decrease false positive and increase true positive
          "white human shadow", 
          "white birds shadow",
          "white vehicle shadow",
          "white object shadow"]
-
+# use the other network for proposal and classification
 # texts = ["steam plume, semi-transparent gas, smoke", "white human shadow", "white birds shadow",  "white cars shadow"]
 processor = Owlv2Processor.from_pretrained("google/owlv2-base-patch16-ensemble")
 config = AutoConfig.from_pretrained("google/owlv2-base-patch16-ensemble")
@@ -65,7 +67,7 @@ for frame in tqdm(frames[:]):
     target_sizes = torch.Tensor([diff.size[::-1]])
     
     frame = np.array(diff)
-    results = processor.post_process_object_detection(outputs=outputs, target_sizes=target_sizes, threshold=0.15)
+    results = processor.post_process_object_detection(outputs=outputs, target_sizes=target_sizes, threshold=0.12)
     
     i = 0
     text = texts[i]
