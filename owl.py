@@ -21,8 +21,14 @@ from transformers import AutoConfig
 import torchvision
 import bitsandbytes
 import torch
-from sam2.sam2_image_predictor import SAM2ImagePredictor
-predictor = SAM2ImagePredictor.from_pretrained("facebook/sam2-hiera-large")
+from sam2.build_sam import build_sam2
+from sam2.build_sam import build_sam2_camera_predictor
+from sam2.build_sam import build_sam2_camera_predictor
+
+sam2_checkpoint = ".sam2/checkpoints/sam2.1_hiera_small.pt"
+model_cfg = "configs/sam2.1/sam2.1_hiera_s.yaml"
+predictor = build_sam2_camera_predictor(model_cfg, sam2_checkpoint)
+
 # use sam to do tracking
 # use reverse? cannot include all list
 # pre encode text
@@ -51,12 +57,15 @@ def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
 
-
-boxes = [] 
+# inference_state = video_predictor.init_state(video_path=root_path)
+# video_predictor.reset_state(inference_state)
+past_boxes = [] 
 # record boxes for past 10 frames. For each new frame, 
 # if there is any boxes matched (>t_iou) for 8/10 past frames, 
 # then it is a valid box. Send it to sam for tracking and segmentation
-for frame in tqdm(frames[2000:5000]):
+if_init = False
+index = 0
+for frame in tqdm(frames[0:3000:10]):
     img = cv2.imread(root_path + frame)
     bgsub.apply(img)
     bg = bgsub.getBackgroundImage().astype(float)
@@ -81,40 +90,61 @@ for frame in tqdm(frames[2000:5000]):
     positive_logits = logits[phrases == 0]
     indices = torchvision.ops.nms(positive, positive_logits, 0.3)
     
-    for box, logit in zip(positive[indices], positive_logits[indices]):
-        x1, y1, x2, y2 = box.int().tolist()
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (255,0,255), 2)
-        cv2.putText(frame, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255,0,255), 1)
+    # for box, logit in zip(positive[indices], positive_logits[indices]):
+    #     x1, y1, x2, y2 = box.int().tolist()
+    #     cv2.rectangle(frame, (x1, y1), (x2, y2), (255,0,255), 2)
+    #     # check all boxes with sam mask, if high iou, do not resegment it (use the tracking mask), otherwise send to SAM
 
 
-    # if len(positive) > 0:
-    #     with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
-    #         predictor.set_image(np.array(diff))
-    #         masks, _, _ = predictor.predict(box=positive[None,:], multimask_output=False, return_logits=True)
-    #         if len(masks.shape) > 3:
-    #             masks = masks.sum(0)
-    #         masks = masks.sum(0)
-    #         if prev_masks is None:
-    #             prev_masks = [masks]
-    #         else:
-    #             prev_masks.append(masks)
-    #             if len(prev_masks) >5:
-    #                 prev_masks.pop(0)
-    #         print(len(prev_masks), prev_masks[0].max()) 
-    #         # pylab.clf()
-    #         # pylab.imshow(masks * 255)
-    #         # pylab.show(block=False)
-    #         # easy to rise but hard to fall
-    # if prev_masks is not None:
-    #     mask_ = np.median(sigmoid(prev_masks), axis=0) > 0.3
-        # frame[mask_, 0] = 255 
-    # even if false positive, if it then disappear, it is not a problem as sam will not be able to track it
-    # if sam no mask for certain frame, then it is dropped 
+    valid_boxes = []    
+    for current_box in boxes[indices]:
+        matched_frames = 0
+        
+        for past_frame_boxes in past_boxes[max(-10, -len(past_boxes)):]: 
+            ious = torchvision.ops.box_iou(current_box.unsqueeze(0), past_frame_boxes)
+            print(ious)
+            if (ious > 0.3).any():
+                matched_frames += 1
+                
+        if matched_frames >= 2:
+            valid_boxes.append(current_box)
+    valid_boxes = torch.stack(valid_boxes) if valid_boxes else torch.empty((0, 4), device=positive.device)
+    for idx, box in enumerate(torch.nn.functional.relu((valid_boxes.int()))): # use relu to avoid negative values
+        x1, y1, x2, y2 = box.tolist()
+        with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
+            # if not if_init:
+            predictor.load_first_frame(frame)
+            if_init = True
+            _, out_obj_ids, masks = predictor.add_new_prompt(bbox=[[x1, y1], [x2, y2]], frame_idx=0, obj_id=1)
+            # always update using current box if any, if not still show it, so we need this outside the for as well
+
+            # else:
+            # out_obj_ids, masks = predictor.track(frame)
+
+        # predictor.set_image(frame)
+        # masks, _, _ = predictor.predict(box = box[None,:], multimask_output=False)
+        # cv2.rectangle(frame, (x1, y1), (x2, y2), (255,0,0), 2)
+        # cv2.putText(frame, "valid box", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255,0,0), 1)
+        print(masks.max(), masks.min())
+        mask = masks[0][0]>0
+        mask = mask.cpu().numpy()
+        # # fill wholes by closing
+        # kernel = np.ones((5,5),np.uint8)
+        # mask = cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel) > 0
+
+        frame[mask,0] = 255
+            
+    if positive[indices].shape[0] > 0:
+        past_boxes.append(positive[indices])
+        
+    if len(past_boxes) > 10:
+        past_boxes.pop(0)
     pylab.clf()
     pylab.imshow(frame)
     pylab.show(block=False)
     pylab.pause(0.0001)
     video_writer.write(frame)
+    index += 1
     
 video_writer.release()
 os.system("ffmpeg -i out.mp4 -c:v libx264 out_x264.mp4 -y > /dev/null 2>&1")
