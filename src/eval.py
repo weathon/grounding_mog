@@ -1,4 +1,4 @@
-
+import torch
 
 class BinaryConfusion:
     def __init__(self):
