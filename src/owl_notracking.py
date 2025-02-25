@@ -82,15 +82,27 @@ from eval import BinaryConfusion
 confusion = BinaryConfusion()
 
 
+frame_level_pred = []
+frame_level_gt = []
 
+# todo: there could be places where boxes not detected, use pre and post frames to detect them
 for frame in tqdm(frames):
     filename = f'{current_video_id}_{frame.split(".")[0]}'
     with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
         img = cv2.imread(os.path.join(root_path, "in", frame))
         bgsub.apply(img)
+        if index % 5 != 0: # the fewer frames the lower recall 
+            index += 1
+            continue 
         bg = bgsub.getBackgroundImage().astype(float)
-        diff = cv2.absdiff(img.astype(float), bg) * 15 #too large cannot see detial, 2 step and clip each time? target value same
-        diff = np.clip(diff, 0, 128).astype(np.uint8)
+        diff = cv2.absdiff(img.astype(float), bg)#too large cannot see detial, 2 step and clip each time? target value same
+        factor = 15
+        high_end = diff.astype(float).mean() + 1 * diff.astype(float).std()
+        if high_end * factor > 255:
+            factor = 255.0 / high_end
+            print("factor", factor)
+        diff = diff.astype(float) * factor
+        diff = np.clip(diff, 0, 255).astype(np.uint8)
         
         diff = Image.fromarray(diff)
         inputs = processor(text=texts, images=diff, return_tensors="pt", padding="longest").to("cuda")
@@ -102,16 +114,32 @@ for frame in tqdm(frames):
         frame = np.array(diff)
         results = processor.post_process_object_detection(outputs=outputs, target_sizes=target_sizes, threshold=0.06)
 
-        i = 0
+        i = 0 
         text = texts[i]
         boxes, logits, phrases = results[i]["boxes"], results[i]["scores"], results[i]["labels"]
 
         positive = boxes[phrases == 0]
         positive_logits = logits[phrases == 0]
         indices = torchvision.ops.nms(positive, positive_logits, 0.3)
-
-        valid_boxes = get_valid_boxes(boxes[indices], past_boxes)
+        # draw all positive boxes
+        all_boxes_canvas = frame.copy()
+        for box in positive:
+            cv2.rectangle(all_boxes_canvas, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (0, 255, 0), 1)
+            
+            
+        if args.temporal_filter:
+            valid_boxes = get_valid_boxes(positive[indices], past_boxes, img.shape[:2])
+        # valid_boxes = get_valid_boxes(boxes[indices], past_boxes, img.shape[:2]) get indices using positive, why use boxes here, big problem 
         
+        # draw valid boxes
+        valid_boxes_canvas = frame.copy()
+        for box in valid_boxes:
+            cv2.rectangle(valid_boxes_canvas, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (255, 0, 0), 1)
+                          
+        gt = cv2.imread(os.path.join(root_path, "gt", gt_frames[index]))
+        gt_binary = (gt.mean(-1) > 20).astype(np.uint8) #ohhhh cannot use 0, also maybe not 3? depends on what it looks like
+
+        mask = np.zeros_like(gt_binary)
         if len(valid_boxes) > 0:        
             predictor.set_image(frame)
             masks, _, _ = predictor.predict(box=valid_boxes, multimask_output=False)
@@ -123,32 +151,39 @@ for frame in tqdm(frames):
             frame[mask,0] = 255
                 
         if positive[indices].shape[0] > 0:
-            past_boxes.append(positive[indices])
+            past_boxes.append(positive) # add all boxes before nms
+            # past_boxes.append(positive[indices])
             
         if len(past_boxes) > 10:
             past_boxes.pop(0)
-        gt = cv2.imread(os.path.join(root_path, "gt", gt_frames[index]))
         # gt = cv2.cvtColor(gt, cv2.COLOR_GRAY2BGR)
-        frame = cv2.hconcat([frame, img])
-        frame_bottom = cv2.hconcat([gt, np.array(diff)])
-        frame = cv2.vconcat([frame, frame_bottom])
+        # frame = cv2.hconcat([frame, img])
+        # frame_bottom = cv2.hconcat([gt, np.array(diff)])
+        # frame = cv2.vconcat([frame, frame_bottom])
         
+        confusion.update(torch.tensor(gt_binary), torch.tensor(mask))
         if len(valid_boxes) > 0:
-            gt_binary = (gt.mean(-1) > 0).astype(np.uint8)
-            confusion.update(torch.tensor(gt_binary), torch.tensor(mask))
             #this cannot be inside, otherwise it cannot detect false negative
             print(confusion.get_f1(), confusion.get_iou(), confusion.get_precision(), confusion.get_recall())
             wandb.log({"f1": confusion.get_f1(),
                        "iou": confusion.get_iou(),
                         "precision": confusion.get_precision(),
                         "recall": confusion.get_recall(),
-                        "frame": wandb.Image(frame)
+                        "frame": wandb.Image(frame),
+                        "all_boxes": wandb.Image(all_boxes_canvas),
+                        "valid_boxes": wandb.Image(valid_boxes_canvas),
+                        "frame": wandb.Image(frame),
+                        "diff": wandb.Image(np.array(diff)),
+                        "gt": wandb.Image(gt_binary),
                         })
         if args.display:
             pylab.clf()
             pylab.imshow(frame)
             pylab.show(block=False)
             pylab.pause(0.0001)
+            
+        frame_level_pred.append(mask.any())
+        frame_level_gt.append(gt_binary.any())
         video_writer.write(frame)
         index += 1
     
@@ -158,7 +193,8 @@ os.system("ffmpeg -i out.mp4 -c:v libx264 out_x264.mp4 -y > /dev/null 2>&1")
 
 if not os.path.exists(args.log_file):
     with open(args.log_file, "w") as f:
-        f.write("video_id,f1,iou,precision,recall\n")
+        f.write("video_id,f1,iou,precision,recall,fla\n")
+frame_level_acc = (np.array(frame_level_pred) == np.array(frame_level_gt)).mean()
 
 with open(args.log_file, "a") as f:
-    f.write(f"{current_video_id},{confusion.get_f1()},{confusion.get_iou()},{confusion.get_precision()},{confusion.get_recall()}\n")
+    f.write(f"{current_video_id},{confusion.get_f1()},{confusion.get_iou()},{confusion.get_precision()},{confusion.get_recall()},{frame_level_acc}\n")
