@@ -30,13 +30,13 @@
           <mxGeometry x="630" y="895" width="120" height="60" as="geometry" />
         </mxCell>
         <mxCell id="YDp1JJaOg0z-zhQRBLFw-22" value="" style="group" parent="1" vertex="1" connectable="0">
-          <mxGeometry x="380" y="730" width="200" height="70" as="geometry" />
+          <mxGeometry x="370" y="730" width="210" height="70" as="geometry" />
         </mxCell>
         <mxCell id="YDp1JJaOg0z-zhQRBLFw-13" value="&lt;div style=&quot;font-family: Consolas, &amp;quot;Courier New&amp;quot;, monospace; font-weight: normal; font-size: 14px; line-height: 19px; white-space: pre;&quot;&gt;&lt;div&gt;&lt;span style=&quot;&quot;&gt;white steam&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;labelBackgroundColor=default;fontColor=#000000;align=right;" parent="YDp1JJaOg0z-zhQRBLFw-22" vertex="1">
-          <mxGeometry width="200" height="20" as="geometry" />
+          <mxGeometry width="210" height="20" as="geometry" />
         </mxCell>
         <mxCell id="YDp1JJaOg0z-zhQRBLFw-14" value="&lt;span style=&quot;font-family: Consolas, &amp;quot;Courier New&amp;quot;, monospace; font-size: 14px; white-space: pre; background-color: rgb(255, 255, 255);&quot;&gt;white human, car, bird, &lt;/span&gt;&lt;div&gt;&lt;span style=&quot;font-family: Consolas, &amp;quot;Courier New&amp;quot;, monospace; font-size: 14px; white-space: pre; background-color: rgb(255, 255, 255);&quot;&gt;bike, and other objects&lt;/span&gt;&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=right;" parent="YDp1JJaOg0z-zhQRBLFw-22" vertex="1">
-          <mxGeometry y="20" width="200" height="50" as="geometry" />
+          <mxGeometry y="20" width="210" height="50" as="geometry" />
         </mxCell>
         <mxCell id="YDp1JJaOg0z-zhQRBLFw-23" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="YDp1JJaOg0z-zhQRBLFw-13" target="YDp1JJaOg0z-zhQRBLFw-20" edge="1">
           <mxGeometry relative="1" as="geometry" />
