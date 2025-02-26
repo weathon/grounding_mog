@@ -46,8 +46,8 @@
             <mxPoint x="883.4000000000001" y="1100" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="YDp1JJaOg0z-zhQRBLFw-25" value="Non Maximum Suppression and Temporal Filtering" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
-          <mxGeometry x="823.33" y="1010" width="120" height="60" as="geometry" />
+        <mxCell id="YDp1JJaOg0z-zhQRBLFw-25" value="Non Maximum Confidence Suppression and Temporal Filtering" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="823.34" y="1010" width="120" height="70" as="geometry" />
         </mxCell>
         <mxCell id="AcX96SMfmjw1beYrCQwq-20" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" parent="1" source="YDp1JJaOg0z-zhQRBLFw-34" target="AcX96SMfmjw1beYrCQwq-19" edge="1">
           <mxGeometry relative="1" as="geometry" />
